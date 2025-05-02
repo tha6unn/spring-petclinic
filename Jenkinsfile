@@ -1,41 +1,39 @@
+groovy
+CopyEdit
 pipeline {
-    agent any
-
-    tools {
-        maven 'Maven 3.8.1'
+  agent any
+  environment {
+    IMAGE = "mydockerhubuser/myapp:${BUILD_NUMBER}"
+    COLOR = "green" // or dynamically set
+  }
+  stages {
+    stage('Clone Repo') {
+      steps {
+        git 'https://github.com/your-org/your-repo.git'
+      }
     }
-
-    environment {
-        DOCKER_IMAGE = "tha6unn/sample-java-app:${BUILD_NUMBER}"
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE .'
+      }
     }
-
-    stages {
-        stage('Checkout Code') {
-            steps {
-                git 'https://github.com/tha6unn/spring-petclinic.git'
-            }
+    stage('Push Image') {
+      steps {
+        withCredentials([string(credentialsId: 'dockerhub-pass', variable: 'DOCKER_PASS')]) {
+          sh 'echo $DOCKER_PASS | docker login -u mydockerhubuser --password-stdin'
+          sh 'docker push $IMAGE'
         }
-        stage('Build with Maven') {
-            steps {
-                sh 'mvn clean package'
-            }
-        }
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t $DOCKER_IMAGE .'
-            }
-        }
-        stage('Push to Docker Hub') {
-            steps {
-                withDockerRegistry([credentialsId: 'docker-hub-creds']) {
-                    sh 'docker push $DOCKER_IMAGE'
-                }
-            }
-        }
-        stage('Deploy to Kubernetes') {
-            steps {
-                sh 'kubectl set image deployment/sample-app-deployment sample-container=$DOCKER_IMAGE'
-            }
-        }
+      }
     }
-}
+    stage('Deploy to Kubernetes') {
+      steps {
+        sh 'kubectl set image deployment/myapp-$COLOR myapp=$IMAGE --record'
+      }
+    }
+    stage('Switch Service') {
+      steps {
+        input "Switch traffic to $COLOR version?"
+        sh 'kubectl patch service myapp-service -p "{\"spec\": {\"selector\": {\"app\": \"myapp\", \"color\": \"$COLOR\"}}}"'
+      }
+    }
+  }
